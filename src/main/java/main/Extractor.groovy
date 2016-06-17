@@ -6,6 +6,8 @@ import org.eclipse.jgit.api.MergeResult
 import org.eclipse.jgit.api.RenameBranchCommand
 import org.eclipse.jgit.api.ResetCommand
 import org.eclipse.jgit.api.ResetCommand.ResetType
+import org.eclipse.jgit.api.errors.JGitInternalException
+import org.eclipse.jgit.api.errors.RefAlreadyExistsException;
 import org.eclipse.jgit.lib.Ref
 import org.eclipse.jgit.lib.Repository
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder
@@ -45,6 +47,12 @@ class Extractor {
 	private ArrayList<String> missingUnknown
 
 	ArrayList<String> revisionFiles
+	
+	//Don't checkout branches that might exist in repos already
+	private String newBranch = "newBranchWithARandomName"
+	private String ancestorBranch = "newAncestorWithARandomName"
+	//private String newBranch = "new"
+	//private String ancestorBranch = "ancestor"
 
 	public Extractor(GremlinProject project, String projectsDirectory){
 		this.project			= project
@@ -119,14 +127,13 @@ class Extractor {
 	}
 
 	def Ref checkoutAndCreateBranch(String branchName, String commit){
-		ChkoutCmd chkcmd = new ChkoutCmd(this.git.getRepository());
-		chkcmd.setName(branchName)
-		chkcmd.setStartPoint(commit)
-		chkcmd.setCreateBranch(true)
-		chkcmd.setForce(true);
-		Ref checkoutResult = chkcmd.call()
-		println "Checked out and created branch sucessfully: " + checkoutResult.getName()
-
+			ChkoutCmd chkcmd = new ChkoutCmd(this.git.getRepository());
+			chkcmd.setName(branchName)
+			chkcmd.setStartPoint(commit)
+			chkcmd.setCreateBranch(true)
+			chkcmd.setForce(true);
+			Ref checkoutResult = chkcmd.call()
+			println "Checked out and created branch sucessfully: " + checkoutResult.getName()
 		return checkoutResult
 	}
 
@@ -141,13 +148,20 @@ class Extractor {
 		ResetCommand resetCommand = git.reset()
 		resetCommand.setMode(ResetType.HARD)
 		resetCommand.setRef(ref)
-		Ref resetResult = resetCommand.call()
-		println "Reseted sucessfully to: " + resetResult.getName()
+		Ref resetResult
+		try {
+			resetResult = resetCommand.call()
+			println "Reseted sucessfully to: " + resetResult.getName()
+		} catch(JGitInternalException e) {
+			e.printStackTrace()
+		}
+		
 	}
 
-	public ExtractorResult runAllFiles(String parent1, String parent2) {
+	public ExtractorResult runAllFiles(String child, String parent1, String parent2) {
 		ExtractorResult result = new ExtractorResult()
 		result.setRevisionFile('')
+		result.setSHAFamily(child, parent1, parent2)
 
 		// folder of the revisions being tested
 		def allRevFolder = this.projectsDirectory + this.project.name + "/revisions/rev_" +
@@ -165,7 +179,7 @@ class Extractor {
 			CleanCommand cleanCommandgit = this.git.clean()
 			cleanCommandgit.call()
 			// git checkout -b new SHA1_2
-			def refNew = checkoutAndCreateBranch("new", parent2)
+			def refNew = checkoutAndCreateBranch(newBranch, parent2)
 			// copy files for parent2 revision
 			destinationDir = allRevFolder + "/rev_right_" + parent2.substring(0, 5)
 			def excludeDir	= "**/" + allRevFolder + "/**"
@@ -195,7 +209,9 @@ class Extractor {
 			if(revBase != null){
 
 				// git reset --hard BASE
-
+				if(parent1 == "5b39238369e68aba0a2a2eb46b6279379053f840") {
+					println("Nu va vi här")
+				}
 				this.resetCommand(this.git, revBase)
 
 				// copy files for base revision
@@ -209,13 +225,19 @@ class Extractor {
 			}
 
 			// avoiding references issues
-			this.deleteBranch("new")
+			this.deleteBranch(newBranch)
 		} catch(org.eclipse.jgit.api.errors.CheckoutConflictException e){
 			println "ERROR: " + e
 			// reseting
 			this.deleteFiles(allRevFolder)
 			this.restoreGitRepository()
 			println "Trying again..."
+		} catch(org.eclipse.jgit.api.errors.JGitInternalException e) {
+			e.printStackTrace()
+		} catch(groovy.lang.MissingPropertyException e) {
+			e.printStackTrace()
+		//} catch(org.eclipse.jgit.api.errors.RefAlreadyExistsException e) {
+			//e.printStackTrace()
 		} finally {
 			println "Closing git repository..."
 			// closing git repository
@@ -245,12 +267,15 @@ class Extractor {
 			// opening the working directory
 			this.git = openRepository();
 			// git reset --hard SHA1_1
+			if(parent1 == "5b39238369e68aba0a2a2eb46b6279379053f840") {
+				println("Nu va vi här")
+			}
 			this.resetCommand(this.git, parent1)
 			// git clean -f
 			CleanCommand cleanCommandgit = this.git.clean()
 			cleanCommandgit.call()
 			// git checkout -b new SHA1_2
-			def refNew = checkoutAndCreateBranch("new", parent2)
+			def refNew = checkoutAndCreateBranch(newBranch, parent2)
 			// git checkout master
 			checkoutMasterBranch()
 			// git merge new
@@ -261,12 +286,12 @@ class Extractor {
 				println "Conflicts: " + res.getConflicts().toString()
 				result.setNonJavaFilesWithConflict(this.processMergeResult(res.getConflicts()))
 				result.revisionFile = 'rev_' + parent1.substring(0, 5) + '-' + parent2.substring(0,5)
-				this.deleteBranch("new")
+				this.deleteBranch(newBranch)
 				
 				this.git.getRepository().close()
 			}
 			// avoiding references issues
-			this.deleteBranch("new")
+			this.deleteBranch(newBranch)
 
 		} catch(org.eclipse.jgit.api.errors.CheckoutConflictException e){
 			println "ERROR: " + e
@@ -308,6 +333,9 @@ class Extractor {
 		// opening the working directory
 		this.git = openRepository();
 		// git reset --hard SHA1_1
+		if(parent1 == "5b39238369e68aba0a2a2eb46b6279379053f840") {
+			println("Nu va vi här")
+		}
 		this.resetCommand(this.git, parent1)
 		// copy files for parent1 revision
 		def destinationDir = allRevFolder + "/rev_left_" + parent1.substring(0, 5)
@@ -316,7 +344,7 @@ class Extractor {
 		CleanCommand cleanCommandgit = this.git.clean()
 		cleanCommandgit.call()
 		// git checkout -b new SHA1_2
-		def refNew = checkoutAndCreateBranch("new", parent2)
+		def refNew = checkoutAndCreateBranch(newBranch, parent2)
 		// copy files for parent2 revision
 		destinationDir = allRevFolder + "/rev_right_" + parent2.substring(0, 5)
 		this.copyFiles(this.repositoryDir, destinationDir, allConflicts)
@@ -329,6 +357,9 @@ class Extractor {
 		if (res.getMergeStatus().equals(MergeResult.MergeStatus.CONFLICTING)){
 			// git reset --hard BASE
 			def revBase = (res.getBase().toString()).split()[1]
+			if(parent1 == "5b39238369e68aba0a2a2eb46b6279379053f840") {
+				println("Nu va vi här")
+			}
 			this.resetCommand(this.git, revBase)
 			// copy files for base revision
 			destinationDir = allRevFolder + "/rev_base_" + revBase.substring(0, 5)
@@ -337,7 +368,7 @@ class Extractor {
 			this.writeRevisionsFile(parent1.substring(0, 5), parent2.substring(0, 5), revBase.substring(0, 5), allRevFolder)
 		}
 		// avoiding references issues
-		this.deleteBranch("new")
+		this.deleteBranch(newBranch)
 
 		CONFLICTS = CONFLICTS + 1
 	}
@@ -347,12 +378,15 @@ class Extractor {
 			// opening the working directory
 			this.git = openRepository();
 			// git reset --hard SHA1_1
+			if(parent1 == "5b39238369e68aba0a2a2eb46b6279379053f840") {
+				println("Nu va vi här")
+			}
 			this.resetCommand(this.git, parent1)
 			// git clean -f
 			CleanCommand cleanCommandgit = this.git.clean()
 			cleanCommandgit.call()
 			// git checkout -b new SHA1_2
-			def refNew = checkoutAndCreateBranch("new", parent2)
+			def refNew = checkoutAndCreateBranch(newBranch, parent2)
 			// git checkout master
 			checkoutMasterBranch()
 			// git merge new
@@ -366,7 +400,7 @@ class Extractor {
 				CONFLICTS = CONFLICTS + 1
 			}
 			// avoiding references issues
-			this.deleteBranch("new")
+			this.deleteBranch(newBranch)
 
 		} catch(org.eclipse.jgit.api.errors.CheckoutConflictException e){
 			println "ERROR: " + e
@@ -504,30 +538,30 @@ class Extractor {
 		ExtractorResult result = new ExtractorResult()
 
 		// the commits to checkout
+		def child_SHA = mergeCommit.sha
 		def SHA_1 = mergeCommit.parent1
 		def SHA_2 = mergeCommit.parent2
 
 		//FUTURE VARIATION POINT
 		//if you wan't to merge and save the merge result
-		/*result = this.runAllFiles(SHA_1, SHA_2)
+		result = this.runAllFiles(child_SHA, SHA_1, SHA_2)
 		String revisionFile = result.getRevisionFile()
 		if(revisionFile != ''){
 			this.printRevisionFiles(revisionFile)
 		}else{
 			println('commit sha:' + mergeCommit.getSha() + ' returned null on common ancestor search.')
-		}*/
+		}
 
 		//elseif you just wan't to download all merges
 
 
-		def ancestorSHA = this.findCommonAncestor(SHA_1, SHA_2)
+		/*def ancestorSHA = this.findCommonAncestor(SHA_1, SHA_2)
 		 if(ancestorSHA != null){
-			 result.revisionFile = this.downloadAllFiles(SHA_1, SHA_2, ancestorSHA)
-			 this.printRevisionFiles(result.revisionFile)
+		 revisionFile = this.downloadAllFiles(SHA_1, SHA_2, ancestorSHA)
+		 this.printRevisionFiles(revisionFile)
 		 }else{
-		 	println('commit sha:' + mergeCommit.getSha() + ' returned null on common ancestor search.')
-		 	this.printMergesWithoutBase(mergeCommit.sha)
-		 }
+		 println('commit sha:' + mergeCommit.getSha() + ' returned null on common ancestor search.')
+		 }*/
 
 		return result
 	}
@@ -548,6 +582,9 @@ class Extractor {
 
 			//copy commit files
 			// git reset --hard SHA
+			if(parent1 == "5b39238369e68aba0a2a2eb46b6279379053f840") {
+				println("Nu va vi här")
+			}
 			this.resetCommand(this.git, mergeCommit.sha)
 			// copy files for commit revision
 			def destinationDir = allRevFolder + "/rev_base_" + mergeCommit.sha.substring(0, 5)
@@ -558,6 +595,9 @@ class Extractor {
 
 			//copy parent1 files
 			// git reset --hard SHA1_1
+			if(parent1 == "5b39238369e68aba0a2a2eb46b6279379053f840") {
+				println("Nu va vi här")
+			}
 			this.resetCommand(this.git, mergeCommit.parent1)
 			// copy files for commit revision
 			destinationDir = allRevFolder + "/rev_left_" + mergeCommit.parent1.substring(0, 5)
@@ -568,7 +608,7 @@ class Extractor {
 
 			if(!mergeCommit.parent2.equals('')){
 				// git checkout -b new SHA1_2
-				def refNew = checkoutAndCreateBranch("new", mergeCommit.parent2)
+				def refNew = checkoutAndCreateBranch(newBranch, mergeCommit.parent2)
 				// copy files for parent2 revision
 				destinationDir = allRevFolder + "/rev_right_" + mergeCommit.parent2.substring(0, 5)
 				def excludeDir	= "**/" + allRevFolder + "/**"
@@ -603,7 +643,7 @@ class Extractor {
 
 
 			// avoiding references issues
-			this.deleteBranch("new")
+			this.deleteBranch(newBranch)
 		} catch(org.eclipse.jgit.api.errors.CheckoutConflictException e){
 			println "ERROR: " + e
 			// reseting
@@ -654,17 +694,6 @@ class Extractor {
 		file.append(line)
 
 	}
-	
-	private void printMergesWithoutBase(String sha){
-		String path = "ResultData" + File.separator + this.project.name +
-				File.separator + 'MergesWithoutBase.csv'
-		File f = new File(path)
-		if(!f.exists()){
-			f.createNewFile()
-		}
-		f.append(sha + '\n')
-		
-	}
 
 	private String downloadAllFiles(parent1, parent2, ancestor) {
 		// folder of the revisions being tested
@@ -674,6 +703,9 @@ class Extractor {
 			// opening the working directory
 			this.git = openRepository();
 			// git reset --hard SHA1_1
+			if(parent1 == "5b39238369e68aba0a2a2eb46b6279379053f840") {
+				println("Nu va vi här")
+			}
 			this.resetCommand(this.git, parent1)
 
 			// copy files for parent1 revision
@@ -688,7 +720,7 @@ class Extractor {
 			cleanCommandgit.call()
 
 			// git checkout -b new SHA1_2
-			def refNew = checkoutAndCreateBranch("new", parent2)
+			def refNew = checkoutAndCreateBranch(newBranch, parent2)
 			// copy files for parent2 revision
 			destinationDir = allRevFolder + "/rev_right_" + parent2.substring(0, 5)
 			def excludeDir	   = "**/" + allRevFolder + "/**"
@@ -705,7 +737,7 @@ class Extractor {
 			cleanCommandgit = this.git.clean()
 			cleanCommandgit.call()
 
-			def refAncestor = checkoutAndCreateBranch("ancestor", ancestor)
+			def refAncestor = checkoutAndCreateBranch(ancestorBranch, ancestor)
 			// copy files for ancestor revision
 			destinationDir = allRevFolder + "/rev_base_" + ancestor.substring(0, 5)
 			excludeDir	   = "**/" + allRevFolder + "/**"
@@ -717,8 +749,8 @@ class Extractor {
 					ancestor.substring(0, 5), allRevFolder)
 			// avoiding references issues
 			checkoutMasterBranch()
-			this.deleteBranch("ancestor")
-			this.deleteBranch("new")
+			this.deleteBranch(ancestorBranch)
+			this.deleteBranch(newBranch)
 
 		} catch(org.eclipse.jgit.api.errors.CheckoutConflictException e){
 			println "ERROR: " + e
@@ -779,12 +811,17 @@ class Extractor {
 	}
 
 	def private renameMainBranchIfNeeded(Repository repository){
-		def branchName = repository.getBranch();
-		if(branchName != "master"){
-			RenameBranchCommand renameCommand = new RenameBranchCommand(repository);
-			renameCommand.setNewName("master")
-			renameCommand.call()
+		try {
+			def branchName = repository.getBranch();
+			if(branchName != "master"){
+				RenameBranchCommand renameCommand = new RenameBranchCommand(repository);
+				renameCommand.setNewName("master")
+				renameCommand.call()
+			}
+		} catch(org.eclipse.jgit.api.errors.RefAlreadyExistsException e) {
+			e.printStackTrace()
 		}
+		
 	}
 
 

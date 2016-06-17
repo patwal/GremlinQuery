@@ -61,7 +61,7 @@ public class NormalizedGremlinQuery {
 		
 		for(commit in mergeCommits){
 			
-			String[] result = [GremlinQuery.auxGetSha(commit.toString()), GremlinQuery.getDate(commit.toString())];
+			String[] result = [GremlinQuery.auxGetSha(commit.toString(), false), GremlinQuery.getDate(commit.toString())];
 			results.add(result)
 			
 		}
@@ -122,7 +122,7 @@ public class NormalizedGremlinQuery {
 			
 			for(p in parentCommit){
 				
-				parentsSha.add(GremlinQuery.auxGetSha(p.toString()))
+				parentsSha.add(GremlinQuery.auxGetSha(p.toString(), true))
 			}
 			
 			
